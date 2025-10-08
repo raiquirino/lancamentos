@@ -1,0 +1,209 @@
+<!-- Substitua o conteúdo do <script> por este novo bloco -->
+<script>
+  const bancoInput = document.getElementById('bancoInput');
+  const movimentoInput = document.getElementById('movimentoInput');
+  const fileInput = document.getElementById('fileInput');
+  const saveButton = document.getElementById('saveButton');
+  const insertButton = document.getElementById('insertButton'); // opcional
+  const lancamentosTable = document.getElementById('lancamentosTable');
+  const tbody = lancamentosTable.querySelector('tbody');
+
+  let movimentoAnterior = '';
+
+  bancoInput.addEventListener('input', atualizarContas);
+  movimentoInput.addEventListener('input', () => {
+    atualizarContas(true);
+  });
+
+  fileInput.addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const lines = e.target.result.split('\n');
+      const linhas = [];
+
+      lines.forEach(line => {
+        const cleanLine = line.trim();
+        if (cleanLine === '') return;
+
+        const [data, historico, valorStr] = cleanLine.split(',');
+        if (!data || !historico || !valorStr) return;
+
+        const valor = parseFloat(valorStr.replace(',', '.'));
+        const debitoConta = valor > 0 ? bancoInput.value.trim() : '';
+        const creditoConta = valor < 0 ? bancoInput.value.trim() : '';
+
+        linhas.push([data, historico, valor.toFixed(2), debitoConta, creditoConta]);
+      });
+
+      renderizarTabela(linhas);
+    };
+
+    reader.readAsText(file);
+  });
+
+  function criarBotaoInserir(posicao) {
+    const trBotao = document.createElement('tr');
+    const tdBotao = document.createElement('td');
+    tdBotao.colSpan = 5;
+
+    const botao = document.createElement('button');
+    botao.textContent = '➕ Inserir aqui';
+    botao.style.width = '100%';
+    botao.onclick = () => {
+      const hoje = new Date();
+      const dia = String(hoje.getDate()).padStart(2, '0');
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+      const ano = hoje.getFullYear();
+      const dataAtual = `${dia}/${mes}/${ano}`;
+
+      const novaLinha = document.createElement('tr');
+      criarLinha(novaLinha, [dataAtual, '', '0.00', '', '']);
+
+      tbody.insertBefore(criarBotaoInserir(posicao), tbody.children[posicao]);
+      tbody.insertBefore(novaLinha, tbody.children[posicao]);
+      atualizarContas();
+    };
+
+    tdBotao.appendChild(botao);
+    trBotao.appendChild(tdBotao);
+    return trBotao;
+  }
+
+  function renderizarTabela(linhas) {
+    tbody.innerHTML = '';
+    linhas.forEach((valores, index) => {
+      tbody.appendChild(criarBotaoInserir(tbody.children.length));
+      const tr = document.createElement('tr');
+      criarLinha(tr, valores);
+      tbody.appendChild(tr);
+    });
+    tbody.appendChild(criarBotaoInserir(tbody.children.length));
+    lancamentosTable.style.display = 'table';
+  }
+
+  insertButton.addEventListener('click', () => {
+    const hoje = new Date();
+    const dia = String(hoje.getDate()).padStart(2, '0');
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const ano = hoje.getFullYear();
+    const dataAtual = `${dia}/${mes}/${ano}`;
+
+    const novaLinha = document.createElement('tr');
+    criarLinha(novaLinha, [dataAtual, '', '0.00', '', '']);
+    tbody.insertBefore(criarBotaoInserir(tbody.children.length), null);
+    tbody.insertBefore(novaLinha, null);
+    lancamentosTable.style.display = 'table';
+  });
+
+  function criarLinha(tr, valores) {
+    valores.forEach((text, index) => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      td.contentEditable = true;
+
+      if (index === 0) {
+        td.addEventListener('input', () => {
+          let raw = td.textContent.replace(/\D/g, '').slice(0, 8);
+          let formatado = raw;
+
+          if (raw.length >= 5) {
+            formatado = raw.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
+          } else if (raw.length >= 3) {
+            formatado = raw.replace(/^(\d{2})(\d{2})/, '$1/$2');
+          }
+
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, formatado);
+        });
+      }
+
+      if (index === 2) {
+        td.addEventListener('input', () => {
+          td.textContent = td.textContent.replace(/[^\d.-]/g, '');
+        });
+      }
+
+      if (index === 3 || index === 4) {
+        td.addEventListener('input', () => {
+          td.textContent = td.textContent.replace(/\D/g, '');
+        });
+      }
+
+      td.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          td.blur();
+          atualizarContas(true);
+        }
+      });
+
+      tr.appendChild(td);
+    });
+  }
+
+  function atualizarContas(forcarMovimento = false) {
+    const banco = bancoInput.value.trim();
+    const movimento = movimentoInput.value.trim();
+    const rows = tbody.querySelectorAll('tr');
+
+    rows.forEach(row => {
+      if (row.cells.length < 5) return; // ignora botões
+
+      const valor = parseFloat(row.cells[2].textContent);
+      const debito = row.cells[3].textContent.trim();
+      const credito = row.cells[4].textContent.trim();
+
+      if (valor > 0) {
+        row.cells[3].textContent = banco || movimento;
+        if (credito === '' || (forcarMovimento && credito === movimentoAnterior)) {
+          row.cells[4].textContent = movimento;
+        }
+      } else if (valor < 0) {
+        row.cells[4].textContent = banco || movimento;
+        if (debito === '' || (forcarMovimento && debito === movimentoAnterior)) {
+          row.cells[3].textContent = movimento;
+        }
+      }
+    });
+
+    movimentoAnterior = movimento;
+  }
+
+  saveButton.addEventListener('click', async function() {
+    let content = '';
+    const rows = tbody.querySelectorAll('tr');
+
+    rows.forEach((row, index) => {
+      if (row.cells.length < 5) return; // ignora botões
+
+      let data = row.cells[0].textContent.trim().replace(/\D/g, '');
+      const historico = row.cells[1].textContent.trim();
+      const valor = Math.abs(parseFloat(row.cells[2].textContent.trim())).toFixed(2);
+      const debito = row.cells[3].textContent.trim();
+      const credito = row.cells[4].textContent.trim();
+      const numeroLancamento = String(index + 1).padStart(3, '0');
+
+      content += `||||${debito}|${credito}||N|N|${historico}|${data}|${valor}||N|${numeroLancamento}|\n`;
+    });
+
+    try {
+      const fileHandle = await window.showSaveFilePicker({
+        suggestedName: 'lancamentos_editados.txt',
+        types: [{
+          description: 'Arquivo de texto',
+          accept: { 'text/plain': ['.txt'] }
+        }]
+      });
+
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      alert('Arquivo salvo com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
+    }
+  });
+</script>

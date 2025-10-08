@@ -14,6 +14,11 @@
       margin-bottom: 10px;
       width: 100px;
     }
+    button {
+      margin-top: 10px;
+      padding: 6px 12px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -28,6 +33,7 @@
   <label for="fileInput">Arquivo de lançamentos (.txt):</label><br>
   <input type="file" id="fileInput" accept=".txt"><br><br>
 
+  <button id="insertButton">➕ Inserir lançamento</button>
   <button id="saveButton">💾 Salvar alterações</button>
 
   <table id="lancamentosTable" style="display:none;">
@@ -48,6 +54,7 @@
     const movimentoInput = document.getElementById('movimentoInput');
     const fileInput = document.getElementById('fileInput');
     const saveButton = document.getElementById('saveButton');
+    const insertButton = document.getElementById('insertButton');
     const lancamentosTable = document.getElementById('lancamentosTable');
     const tbody = lancamentosTable.querySelector('tbody');
 
@@ -80,20 +87,7 @@
           const debitoConta = valor > 0 ? bancoInput.value.trim() : '';
           const creditoConta = valor < 0 ? bancoInput.value.trim() : '';
 
-          [data, historico, valor.toFixed(2), debitoConta, creditoConta].forEach((text, index) => {
-            const td = document.createElement('td');
-            td.textContent = text;
-            td.contentEditable = true;
-
-            if (index === 3 || index === 4) {
-              td.addEventListener('input', () => {
-                td.textContent = td.textContent.replace(/\D/g, '');
-              });
-            }
-
-            tr.appendChild(td);
-          });
-
+          criarLinha(tr, [data, historico, valor.toFixed(2), debitoConta, creditoConta]);
           tbody.appendChild(tr);
         });
 
@@ -103,6 +97,65 @@
 
       reader.readAsText(file);
     });
+
+    insertButton.addEventListener('click', () => {
+      const hoje = new Date();
+      const dia = String(hoje.getDate()).padStart(2, '0');
+      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+      const ano = hoje.getFullYear();
+      const dataAtual = `${dia}/${mes}/${ano}`;
+
+      const tr = document.createElement('tr');
+      criarLinha(tr, [dataAtual, '', '0.00', '', '']);
+      tbody.appendChild(tr);
+      lancamentosTable.style.display = 'table';
+    });
+
+    function criarLinha(tr, valores) {
+      valores.forEach((text, index) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        td.contentEditable = true;
+
+        if (index === 0) {
+          td.addEventListener('input', () => {
+            let raw = td.textContent.replace(/\D/g, '').slice(0, 8);
+            let formatado = raw;
+
+            if (raw.length >= 5) {
+              formatado = raw.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
+            } else if (raw.length >= 3) {
+              formatado = raw.replace(/^(\d{2})(\d{2})/, '$1/$2');
+            }
+
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, formatado);
+          });
+        }
+
+        if (index === 2) {
+          td.addEventListener('input', () => {
+            td.textContent = td.textContent.replace(/[^\d.-]/g, '');
+          });
+        }
+
+        if (index === 3 || index === 4) {
+          td.addEventListener('input', () => {
+            td.textContent = td.textContent.replace(/\D/g, '');
+          });
+        }
+
+        td.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            td.blur();
+            atualizarContas(true);
+          }
+        });
+
+        tr.appendChild(td);
+      });
+    }
 
     function atualizarContas(forcarMovimento = false) {
       const banco = bancoInput.value.trim();

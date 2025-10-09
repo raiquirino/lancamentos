@@ -1,209 +1,255 @@
-<!-- Substitua o conteúdo do <script> por este novo bloco -->
-<script>
-  const bancoInput = document.getElementById('bancoInput');
-  const movimentoInput = document.getElementById('movimentoInput');
-  const fileInput = document.getElementById('fileInput');
-  const saveButton = document.getElementById('saveButton');
-  const insertButton = document.getElementById('insertButton'); // opcional
-  const lancamentosTable = document.getElementById('lancamentosTable');
-  const tbody = lancamentosTable.querySelector('tbody');
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Cadastro de Lançamentos</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    td { cursor: pointer; }
+    input[type="text"] { padding: 6px; margin-bottom: 10px; width: 100px; }
+    button { padding: 6px 12px; font-size: 14px; }
+  </style>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h2>📋 Cadastro de Lançamentos Contábeis</h2>
 
-  let movimentoAnterior = '';
+  <label for="bancoInput">Banco</label><br>
+  <input type="text" id="bancoInput" inputmode="numeric" pattern="\d*"><br><br>
 
-  bancoInput.addEventListener('input', atualizarContas);
-  movimentoInput.addEventListener('input', () => {
-    atualizarContas(true);
-  });
+  <label for="movimentoInput">Movimento:</label><br>
+  <input type="text" id="movimentoInput" inputmode="numeric" pattern="\d*"><br><br>
 
-  fileInput.addEventListener('change', function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+  <label for="fileInput">Arquivo de lançamentos (.txt, .xls, .xlsx):</label><br>
+  <input type="file" id="fileInput" accept=".txt,.xls,.xlsx"><br><br>
 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      const lines = e.target.result.split('\n');
-      const linhas = [];
+  <button id="saveButton">💾 Salvar alterações</button>
+  <button id="undoButton" disabled>🔄 Desfazer exclusão</button>
 
-      lines.forEach(line => {
-        const cleanLine = line.trim();
-        if (cleanLine === '') return;
+  <table id="lancamentosTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>Data</th><th>Histórico</th><th>Valor (R$)</th><th>Débito</th><th>Crédito</th><th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-        const [data, historico, valorStr] = cleanLine.split(',');
-        if (!data || !historico || !valorStr) return;
+  <script>
+    const bancoInput = document.getElementById('bancoInput');
+    const movimentoInput = document.getElementById('movimentoInput');
+    const fileInput = document.getElementById('fileInput');
+    const saveButton = document.getElementById('saveButton');
+    const undoButton = document.getElementById('undoButton');
+    const lancamentosTable = document.getElementById('lancamentosTable');
+    const tbody = lancamentosTable.querySelector('tbody');
+    let movimentoAnterior = '';
+    let linhasExcluidas = [];
 
-        const valor = parseFloat(valorStr.replace(',', '.'));
-        const debitoConta = valor > 0 ? bancoInput.value.trim() : '';
-        const creditoConta = valor < 0 ? bancoInput.value.trim() : '';
+    bancoInput.addEventListener('input', () => atualizarContas(true));
+    movimentoInput.addEventListener('input', () => atualizarContas(true));
 
-        linhas.push([data, historico, valor.toFixed(2), debitoConta, creditoConta]);
-      });
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
 
-      renderizarTabela(linhas);
-    };
+      const isExcel = file.name.endsWith('.xls') || file.name.endsWith('.xlsx');
 
-    reader.readAsText(file);
-  });
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-  function criarBotaoInserir(posicao) {
-    const trBotao = document.createElement('tr');
-    const tdBotao = document.createElement('td');
-    tdBotao.colSpan = 5;
+          tbody.innerHTML = '';
+          rows.forEach((row, i) => {
+            if (i === 0 || row.length < 3) return;
+            const [data, historico, valor, debito = '', credito = ''] = row.map(cell => String(cell || '').trim());
+            adicionarLinha([data, historico, valor, debito, credito]);
+          });
 
-    const botao = document.createElement('button');
-    botao.textContent = '➕ Inserir aqui';
-    botao.style.width = '100%';
-    botao.onclick = () => {
-      const hoje = new Date();
-      const dia = String(hoje.getDate()).padStart(2, '0');
-      const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-      const ano = hoje.getFullYear();
-      const dataAtual = `${dia}/${mes}/${ano}`;
+          lancamentosTable.style.display = 'table';
+          atualizarContas();
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = e => {
+          tbody.innerHTML = '';
+          e.target.result.split('\n').forEach(line => {
+            const parts = line.trim().split(',');
+            if (parts.length < 4) return;
+            const data = parts[0];
+            const historico = parts[1];
+            const valor = `${parts[2]},${parts[3]}`.trim();
+            const debito = valor.startsWith('-') ? '' : bancoInput.value.trim();
+            const credito = valor.startsWith('-') ? bancoInput.value.trim() : '';
+            adicionarLinha([data, historico, valor, debito, credito]);
+          });
+          lancamentosTable.style.display = 'table';
+          atualizarContas();
+        };
+        reader.readAsText(file);
+      }
+    });
 
-      const novaLinha = document.createElement('tr');
-      criarLinha(novaLinha, [dataAtual, '', '0.00', '', '']);
-
-      tbody.insertBefore(criarBotaoInserir(posicao), tbody.children[posicao]);
-      tbody.insertBefore(novaLinha, tbody.children[posicao]);
-      atualizarContas();
-    };
-
-    tdBotao.appendChild(botao);
-    trBotao.appendChild(tdBotao);
-    return trBotao;
-  }
-
-  function renderizarTabela(linhas) {
-    tbody.innerHTML = '';
-    linhas.forEach((valores, index) => {
-      tbody.appendChild(criarBotaoInserir(tbody.children.length));
+    function adicionarLinha(valores = ['', '', '0,00', '', ''], posicao = null) {
       const tr = document.createElement('tr');
-      criarLinha(tr, valores);
-      tbody.appendChild(tr);
-    });
-    tbody.appendChild(criarBotaoInserir(tbody.children.length));
-    lancamentosTable.style.display = 'table';
-  }
-
-  insertButton.addEventListener('click', () => {
-    const hoje = new Date();
-    const dia = String(hoje.getDate()).padStart(2, '0');
-    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-    const ano = hoje.getFullYear();
-    const dataAtual = `${dia}/${mes}/${ano}`;
-
-    const novaLinha = document.createElement('tr');
-    criarLinha(novaLinha, [dataAtual, '', '0.00', '', '']);
-    tbody.insertBefore(criarBotaoInserir(tbody.children.length), null);
-    tbody.insertBefore(novaLinha, null);
-    lancamentosTable.style.display = 'table';
-  });
-
-  function criarLinha(tr, valores) {
-    valores.forEach((text, index) => {
-      const td = document.createElement('td');
-      td.textContent = text;
-      td.contentEditable = true;
-
-      if (index === 0) {
-        td.addEventListener('input', () => {
-          let raw = td.textContent.replace(/\D/g, '').slice(0, 8);
-          let formatado = raw;
-
-          if (raw.length >= 5) {
-            formatado = raw.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
-          } else if (raw.length >= 3) {
-            formatado = raw.replace(/^(\d{2})(\d{2})/, '$1/$2');
+      valores.forEach((text, i) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        td.contentEditable = true;
+        td.addEventListener('input', () => aplicarMascara(td, i));
+        td.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            td.blur();
           }
-
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, formatado);
         });
-      }
-
-      if (index === 2) {
-        td.addEventListener('input', () => {
-          td.textContent = td.textContent.replace(/[^\d.-]/g, '');
-        });
-      }
-
-      if (index === 3 || index === 4) {
-        td.addEventListener('input', () => {
-          td.textContent = td.textContent.replace(/\D/g, '');
-        });
-      }
-
-      td.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          td.blur();
-          atualizarContas(true);
-        }
+        tr.appendChild(td);
       });
 
-      tr.appendChild(td);
-    });
-  }
+      const tdBtn = document.createElement('td');
 
-  function atualizarContas(forcarMovimento = false) {
-    const banco = bancoInput.value.trim();
-    const movimento = movimentoInput.value.trim();
-    const rows = tbody.querySelectorAll('tr');
+      const btnInserir = document.createElement('button');
+      btnInserir.textContent = '➕';
+      btnInserir.title = 'Inserir nova linha abaixo';
+      btnInserir.onclick = () => {
+        const dataAcima = tr.cells[0].textContent.trim();
+        const historicoAcima = tr.cells[1].textContent.trim();
+        adicionarLinha([dataAcima, historicoAcima, '0,00', '', ''], tr.nextSibling);
+      };
+      tdBtn.appendChild(btnInserir);
+      tdBtn.appendChild(document.createTextNode(' '));
 
-    rows.forEach(row => {
-      if (row.cells.length < 5) return; // ignora botões
+      const btnExcluir = document.createElement('button');
+      btnExcluir.textContent = '❌';
+      btnExcluir.title = 'Excluir esta linha';
+      btnExcluir.onclick = () => {
+        const dados = [...tr.cells].slice(0, 5).map(cell => cell.textContent.trim());
+        linhasExcluidas.push(dados);
+        tr.remove();
+        undoButton.disabled = false;
+        colorirLinhas();
+      };
+      tdBtn.appendChild(btnExcluir);
 
-      const valor = parseFloat(row.cells[2].textContent);
-      const debito = row.cells[3].textContent.trim();
-      const credito = row.cells[4].textContent.trim();
+      tr.appendChild(tdBtn);
 
-      if (valor > 0) {
-        row.cells[3].textContent = banco || movimento;
-        if (credito === '' || (forcarMovimento && credito === movimentoAnterior)) {
-          row.cells[4].textContent = movimento;
-        }
-      } else if (valor < 0) {
-        row.cells[4].textContent = banco || movimento;
-        if (debito === '' || (forcarMovimento && debito === movimentoAnterior)) {
-          row.cells[3].textContent = movimento;
-        }
-      }
-    });
+      if (posicao) tbody.insertBefore(tr, posicao);
+      else tbody.appendChild(tr);
 
-    movimentoAnterior = movimento;
-  }
-
-  saveButton.addEventListener('click', async function() {
-    let content = '';
-    const rows = tbody.querySelectorAll('tr');
-
-    rows.forEach((row, index) => {
-      if (row.cells.length < 5) return; // ignora botões
-
-      let data = row.cells[0].textContent.trim().replace(/\D/g, '');
-      const historico = row.cells[1].textContent.trim();
-      const valor = Math.abs(parseFloat(row.cells[2].textContent.trim())).toFixed(2);
-      const debito = row.cells[3].textContent.trim();
-      const credito = row.cells[4].textContent.trim();
-      const numeroLancamento = String(index + 1).padStart(3, '0');
-
-      content += `||||${debito}|${credito}||N|N|${historico}|${data}|${valor}||N|${numeroLancamento}|\n`;
-    });
-
-    try {
-      const fileHandle = await window.showSaveFilePicker({
-        suggestedName: 'lancamentos_editados.txt',
-        types: [{
-          description: 'Arquivo de texto',
-          accept: { 'text/plain': ['.txt'] }
-        }]
-      });
-
-      const writable = await fileHandle.createWritable();
-      await writable.write(content);
-      await writable.close();
-      alert('Arquivo salvo com sucesso!');
-    } catch (err) {
-      console.error('Erro ao salvar:', err);
+      colorirLinhas();
     }
-  });
-</script>
+
+    undoButton.addEventListener('click', () => {
+      if (linhasExcluidas.length > 0) {
+        const ultima = linhasExcluidas.pop();
+        adicionarLinha(ultima);
+        if (linhasExcluidas.length === 0) undoButton.disabled = true;
+        colorirLinhas();
+      }
+    });
+
+    function aplicarMascara(td, index) {
+      let txt = td.textContent;
+      if (index === 0) {
+        let raw = txt.replace(/\D/g, '').slice(0, 8);
+        let formatado = raw;
+        if (raw.length >= 5) formatado = raw.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
+        else if (raw.length >= 3) formatado = raw.replace(/^(\d{2})(\d{2})/, '$1/$2');
+
+        const sel = window.getSelection();
+        const range = document.createRange();
+        td.textContent = formatado;
+        range.selectNodeContents(td);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else if (index === 2) {
+        td.textContent = txt.replace(/[^\d,-.]/g, '');
+      } else if (index === 3 || index === 4) {
+        td.textContent = txt.replace(/\D/g, '');
+      }
+    }
+    function atualizarContas(forcarMovimento = false) {
+      const banco = bancoInput.value.trim();
+      const movimento = movimentoInput.value.trim();
+      const rows = tbody.querySelectorAll('tr');
+
+      rows.forEach(row => {
+        const valor = parseFloat(row.cells[2].textContent);
+        const debito = row.cells[3].textContent.trim();
+        const credito = row.cells[4].textContent.trim();
+
+        if (valor > 0) {
+          row.cells[3].textContent = banco || movimento;
+          if (
+            credito === '' ||
+            (forcarMovimento && credito === movimentoAnterior)
+          ) {
+            row.cells[4].textContent = movimento;
+          }
+        } else if (valor < 0) {
+          row.cells[4].textContent = banco || movimento;
+          if (
+            debito === '' ||
+            (forcarMovimento && debito === movimentoAnterior)
+          ) {
+            row.cells[3].textContent = movimento;
+          }
+        }
+      });
+
+      movimentoAnterior = movimento;
+    
+
+    colorirLinhas();
+    }
+
+
+    saveButton.addEventListener('click', async () => {
+      let content = '';
+      tbody.querySelectorAll('tr').forEach((row, i) => {
+        const data = row.cells[0].textContent.trim().replace(/\D/g, '');
+        const historico = row.cells[1].textContent.trim();
+        const valorTexto = row.cells[2].textContent.trim();
+        const valorNumerico = Math.abs(parseFloat(valorTexto.replace(/\./g, '').replace(',', '.'))).toFixed(2);
+        const debito = row.cells[3].textContent.trim();
+        const credito = row.cells[4].textContent.trim();
+        const num = String(i + 1).padStart(3, '0');
+        content += `||||${debito}|${credito}||N|N|${historico}|${data}|${valorNumerico}||N|${num}|\n`;
+      });
+
+      try {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'Arquivo de importacao.txt',
+          types: [{ description: 'Arquivo de texto', accept: { 'text/plain': ['.txt'] } }]
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        alert('Arquivo salvo com sucesso!');
+      } catch (err) {
+        console.error('Erro ao salvar:', err);
+      }
+    });
+
+      function colorirLinhas() {
+        const banco = bancoInput.value.trim();
+        tbody.querySelectorAll('tr').forEach(row => {
+            const debito = row.cells[3].textContent.trim();
+            const cor = debito === banco ? '#007BFF' : '#FF4C4C'; // azul ou vermelho
+            for (let i = 0; i < 5; i++) {
+            row.cells[i].style.color = cor;
+            }
+        });
+    }
+  </script>
+</body>
+</html>

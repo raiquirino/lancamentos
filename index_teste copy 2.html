@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Cadastro de Lançamentos</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    td { cursor: pointer; }
+    input[type="text"] { padding: 6px; margin-bottom: 10px; width: 100px; }
+    button { padding: 6px 12px; font-size: 14px; }
+  </style>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h2>📋 Cadastro de Lançamentos Contábeis</h2>
+
+  <label for="bancoInput">Banco</label><br>
+  <input type="text" id="bancoInput" inputmode="numeric" pattern="\d*"><br><br>
+
+  <label for="movimentoInput">Movimento:</label><br>
+  <input type="text" id="movimentoInput" inputmode="numeric" pattern="\d*"><br><br>
+
+  <label for="fileInput">Arquivo de lançamentos (.txt, .xls, .xlsx):</label><br>
+  <input type="file" id="fileInput" accept=".txt,.xls,.xlsx"><br><br>
+
+  <button id="saveButton">💾 Salvar alterações</button>
+  <button id="undoButton" disabled>🔄 Desfazer exclusão</button>
+  <div id="editorArea" style="display:none; margin-top:30px; border:1px solid #ccc; padding:15px;">
+  
+  <table id="editTable" style="width:100%; border-collapse:collapse;">
+      <table id="lancamentosTable" style="display:none;">
+    <tr>
+    <thead>
+    </tr>
+      <tr>
+        <tbody></tbody>
+        <th>Data</th><th>Histórico</th><th>Valor (R$)</th><th>Débito</th><th>Crédito</th><th></th>
+        <button id="addEditLine">➕ Adicionar linha</button><br><br>
+      </tr>
+      <p><strong>Total Crédito:</strong> R$ <span id="totalCredito">0.00</span></p>
+    </thead>
+    <button id="applyEdit">✅ Salvar lançamento</button>
+    <tbody></tbody>
+  </div>
+  </table>
+
+    <h3>✏️ Edição de Lançamento</h3>
+      <thead>
+          <th>Data</th><th>Histórico</th><th>Valor (R$)</th><th>Débito</th><th>Crédito</th><th></th>
+      </thead>
+    </table>
+    <p><strong>Total Débito:</strong> R$ <span id="totalDebito">0.00</span></p>
+    <p><strong>Diferença:</strong> R$ <span id="diferenca">0.00</span></p>
+    <button id="cancelEdit">❌ Cancelar</button>
+
+  <script>
+    const el = {
+      banco: document.getElementById('bancoInput'),
+      movimento: document.getElementById('movimentoInput'),
+      file: document.getElementById('fileInput'),
+      save: document.getElementById('saveButton'),
+      undo: document.getElementById('undoButton'),
+      table: document.getElementById('lancamentosTable'),
+      tbody: document.querySelector('#lancamentosTable tbody')
+    };
+
+    const editorArea = document.getElementById('editorArea');
+    const editTable = document.getElementById('editTable').querySelector('tbody');
+    const totalDebito = document.getElementById('totalDebito');
+    const totalCredito = document.getElementById('totalCredito');
+    const diferenca = document.getElementById('diferenca');
+    const addEditLine = document.getElementById('addEditLine');
+    const applyEdit = document.getElementById('applyEdit');
+    const cancelEdit = document.getElementById('cancelEdit');
+
+    let movimentoAnterior = '';
+    let linhasExcluidas = [];
+    let linhaEditando = null;
+    let dadosOriginais = {};
+
+    function criarBotao(texto, titulo, onclick) {
+      const btn = document.createElement('button');
+      btn.textContent = texto;
+      btn.title = titulo;
+      btn.onclick = onclick;
+      return btn;
+    }
+
+    function adicionarLinha(valores = ['', '', '0,00', '', ''], posicao = null) {
+      const tr = document.createElement('tr');
+      valores.forEach((text, i) => {
+        const td = document.createElement('td');
+        td.textContent = text.replace('-', '');
+        td.contentEditable = true;
+        td.addEventListener('input', () => aplicarMascara(td, i));
+        td.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            td.blur();
+          }
+        });
+        tr.appendChild(td);
+      });
+
+      const tdBtn = document.createElement('td');
+      tdBtn.appendChild(criarBotao('➕', 'Inserir nova linha abaixo', () => {
+        const [data, historico] = [tr.cells[0], tr.cells[1]].map(c => c.textContent.trim());
+        adicionarLinha([data, historico, '0,00', '', ''], tr.nextSibling);
+      }));
+      tdBtn.appendChild(document.createTextNode(' '));
+      tdBtn.appendChild(criarBotao('❌', 'Excluir esta linha', () => {
+        const dados = [...tr.cells].slice(0, 5).map(cell => cell.textContent.trim());
+        linhasExcluidas.push(dados);
+        tr.remove();
+        el.undo.disabled = false;
+        colorirLinhas();
+      }));
+      tdBtn.appendChild(document.createTextNode(' '));
+      tdBtn.appendChild(criarBotao('✏️', 'Editar lançamento', () => abrirEditor(tr)));
+      tr.appendChild(tdBtn);
+
+      posicao ? el.tbody.insertBefore(tr, posicao) : el.tbody.appendChild(tr);
+      colorirLinhas();
+    }
+
+    function aplicarMascara(td, index) {
+      let txt = td.textContent;
+      if (index === 0) {
+        let raw = txt.replace(/\D/g, '').slice(0, 8);
+        let formatado = raw;
+        if (raw.length >= 5) formatado = raw.replace(/^(\d{2})(\d{2})(\d{4})$/, '$1/$2/$3');
+        else if (raw.length >= 3) formatado = raw.replace(/^(\d{2})(\d{2})/, '$1/$2');
+        td.textContent = formatado;
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(td);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else if (index === 2) {
+        td.textContent = txt.replace(/[^\d,-.]/g, '').replace('-', '');
+      } else if (index === 3 || index === 4) {
+        td.textContent = txt.replace(/\D/g, '');
+      }
+    }
+
+    function atualizarContas(forcarMovimento = false) {
+      const banco = el.banco.value.trim();
+      const movimento = el.movimento.value.trim();
+      el.tbody.querySelectorAll('tr').forEach(row => {
+        const valor = parseFloat(row.cells[2].textContent.replace(',', '.')) || 0;
+        const debito = row.cells[3].textContent.trim();
+        const credito = row.cells[4].textContent.trim();
+        if (valor > 0) {
+          row.cells[3].textContent = banco || movimento;
+          if (!credito || (forcarMovimento && credito === movimentoAnterior)) {
+            row.cells[4].textContent = movimento;
+          }
+        } else if (valor < 0) {
+          row.cells[4].textContent = banco || movimento;
+          if (!debito || (forcarMovimento && debito === movimentoAnterior)) {
+            row.cells[3].textContent = movimento;
+          }
+        }
+      });
+      movimentoAnterior = movimento;
+      colorirLinhas();
+    }
+
+    function colorirLinhas() {
+      const banco = el.banco.value.trim();
+      el.tbody.querySelectorAll('tr').forEach(row => {
+                const cor = row.cells[3].textContent.trim() === banco ? '#007BFF' : '#FF4C4C';
+        [...row.cells].slice(0, 5).forEach(cell => cell.style.color = cor);
+      });
+    }
+
+    el.file.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        el.tbody.innerHTML = '';
+        if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+          rows.slice(1).forEach(row => {
+            if (row.length >= 3) {
+              const [data, historico, valor, debito = '', credito = ''] = row.map(cell => String(cell || '').trim());
+              adicionarLinha([data, historico, valor.replace('-', ''), debito, credito]);
+            }
+          });
+        } else {
+          e.target.result.split('\n').forEach(line => {
+            const parts = line.trim().split(',');
+            if (parts.length >= 4) {
+              const valor = `${parts[2]},${parts[3]}`.replace('-', '').trim();
+              const debito = valor.startsWith('-') ? '' : el.banco.value.trim();
+              const credito = valor.startsWith('-') ? el.banco.value.trim() : '';
+              adicionarLinha([parts[0], parts[1], valor, debito, credito]);
+            }
+          });
+        }
+        el.table.style.display = 'table';
+        atualizarContas();
+      };
+      file.name.endsWith('.xls') || file.name.endsWith('.xlsx')
+        ? reader.readAsArrayBuffer(file)
+        : reader.readAsText(file);
+    });
+
+    el.undo.addEventListener('click', () => {
+      if (linhasExcluidas.length > 0) {
+        adicionarLinha(linhasExcluidas.pop());
+        el.undo.disabled = linhasExcluidas.length === 0;
+        colorirLinhas();
+      }
+    });
+
+    el.save.addEventListener('click', async () => {
+      let content = '';
+      el.tbody.querySelectorAll('tr').forEach((row, i) => {
+        const data = row.cells[0].textContent.trim().replace(/\D/g, '');
+        const historico = row.cells[1].textContent.trim();
+        const valorTexto = row.cells[2].textContent.trim().replace('-', '');
+        const valorNumerico = Math.abs(parseFloat(valorTexto.replace(/\./g, '').replace(',', '.'))).toFixed(2);
+        const debito = row.cells[3].textContent.trim();
+        const credito = row.cells[4].textContent.trim();
+        const num = String(i + 1).padStart(3, '0');
+        content += `||||${debito}|${credito}||N|N|${historico}|${data}|${valorNumerico}||N|${num}|\n`;
+      });
+
+      try {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'Arquivo de importacao.txt',
+          types: [{ description: 'Arquivo de texto', accept: { 'text/plain': ['.txt'] } }]
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        alert('Arquivo salvo com sucesso!');
+      } catch (err) {
+        console.error('Erro ao salvar:', err);
+      }
+    });
+
+    function abrirEditor(tr) {
+      linhaEditando = tr;
+      const [data, historico] = [tr.cells[0], tr.cells[1]].map(c => c.textContent.trim());
+      dadosOriginais = { data, historico };
+      editTable.innerHTML = '';
+      adicionarLinhaEdicao(data, historico, tr.cells[2].textContent.trim().replace('-', ''));
+      editorArea.style.display = 'block';
+      atualizarTotaisEdicao();
+    }
+
+    function adicionarLinhaEdicao(data, historico, valor = '', debito = '', credito = '') {
+      valor = valor.replace('-', '');
+      const tr = document.createElement('tr');
+      const campos = [data, historico, valor, debito, credito];
+      campos.forEach((text, i) => {
+        const td = document.createElement('td');
+        td.contentEditable = true;
+        td.textContent = text;
+        td.addEventListener('input', atualizarTotaisEdicao);
+        tr.appendChild(td);
+      });
+
+      const tdBtn = document.createElement('td');
+      tdBtn.appendChild(criarBotao('❌', 'Remover linha', () => {
+        tr.remove();
+        atualizarTotaisEdicao();
+      }));
+      tr.appendChild(tdBtn);
+      editTable.appendChild(tr);
+    }
+
+    addEditLine.addEventListener('click', () => {
+      const debitoTotal = parseFloat(totalDebito.textContent.replace(',', '.')) || 0;
+      const creditoTotal = parseFloat(totalCredito.textContent.replace(',', '.')) || 0;
+      const diferencaValor = Math.abs(debitoTotal - creditoTotal).toFixed(2);
+      const isDebitoFaltando = debitoTotal < creditoTotal;
+      const partidaBanco = el.banco.value.trim();
+
+      const valor = diferencaValor;
+      const debito = isDebitoFaltando ? partidaBanco : '';
+      const credito = isDebitoFaltando ? '' : partidaBanco;
+
+      adicionarLinhaEdicao(dadosOriginais.data, dadosOriginais.historico, valor, debito, credito);
+      atualizarTotaisEdicao();
+    });
+
+    cancelEdit.addEventListener('click', () => {
+      editorArea.style.display = 'none';
+      linhaEditando = null;
+    });
+
+    applyEdit.addEventListener('click', () => {
+      if (!linhaEditando) return;
+      editTable.querySelectorAll('tr').forEach(row => {
+        const valores = [...row.cells].slice(0, 5).map(c => c.textContent.trim());
+        adicionarLinha(valores, linhaEditando.nextSibling);
+      });
+      linhaEditando.remove();
+      editorArea.style.display = 'none';
+      linhaEditando = null;
+      atualizarContas();
+    });
+
+    function atualizarTotaisEdicao() {
+      let somaDebito = 0, somaCredito = 0;
+      editTable.querySelectorAll('tr').forEach(row => {
+        const valor = parseFloat(row.cells[2].textContent.replace(',', '.')) || 0;
+        const debito = row.cells[3].textContent.trim();
+        const credito = row.cells[4].textContent.trim();
+        if (debito) somaDebito += valor;
+        if (credito) somaCredito += valor;
+      });
+      totalDebito.textContent = somaDebito.toFixed(2);
+      totalCredito.textContent = somaCredito.toFixed(2);
+      diferenca.textContent = Math.abs(somaDebito - somaCredito).toFixed(2);
+    }
+  </script>
+</body>
+</html>

@@ -23,12 +23,10 @@
   <input type="file" id="file-input" accept=".txt,.xlsx" />
 
   <button onclick="salvarNovo()" style="display: none;">💾 Salvar como Novo</button>
-
-  <!-- 🔄 Botão de desfazer exclusões -->
+  <!--
   <button id="desfazer-btn">🔄 Desfazer exclusões</button>
-
-  <!-- 🔄 Botão de desfazer edição -->
   <button onclick="desfazerEdicao()">🔄 Desfazer edição</button>
+  -->
 
   <!-- ✏️ Tabela de edição -->
   <h2 id="h2-tabela-edicao">✏️ Edição de Lançamento</h2>
@@ -47,15 +45,14 @@
   </table>
 
   <!-- 🔢 Totais -->
-  <div>
-    <p><span id="total-debito">Débito: 0,00</span></p>
-    <p><span id="total-credito">Crédito: 0,00</span></p>
-    <p><span id="diferenca">Diferença: 0,00</span></p>
-  </div>
+    <div id="totais-edicao">
+        <p><span id="total-debito">Débito: </span></p>
+        <p><span id="total-credito">Crédito: </span></p>
+        <p><span id="diferenca">Diferença: </span></p>
+    </div>
 
   <!-- 💾 Botão de salvar alterações -->
     <button id="salvar-edicao-btn" style="display: none;">💾 Salvar Alterações</button>
-
 
   <!-- 📋 Tabela principal -->
   <h2>📋 Lançamentos</h2>

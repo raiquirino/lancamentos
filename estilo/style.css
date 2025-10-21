@@ -1,0 +1,80 @@
+@charset "UTF-8";
+
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+  background-color: #f4f4f4;
+}
+
+h1 {
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+input[type="text"],
+input[type="file"] {
+  margin-top: 5px;
+  margin-bottom: 15px;
+  padding: 8px;
+  font-size: 14px;
+  width: 300px;
+  display: block;
+}
+
+/* 🔄 Ajuste para Banco e Movimentação lado a lado */
+.input-row {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.input-row label {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.input-row input[type="text"] {
+  width: 75px;
+  padding: 6px;
+  font-size: 14px;
+  margin: 0;
+  display: inline-block;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background-color: #fff;
+  margin-top: 20px;
+}
+
+th,
+td {
+  border: 1px solid #ccc;
+  padding: 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+#tabela-edicao,
+#h2-tabela-edicao {
+  display: none;
+}
+
+#totais-edicao {
+  display: flex;
+  gap: 150px; /* espaço entre os totais */
+  align-items: center;
+  margin-top: 10px;
+}
+
+#totais-edicao p {
+  margin: 0;
+  font-weight: bold;
+}
